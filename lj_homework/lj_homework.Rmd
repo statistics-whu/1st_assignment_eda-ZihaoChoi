@@ -1,0 +1,228 @@
+---
+title: "lj_homework"
+CJKmainfont: Songti SC
+date: "2024-10-31"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r include = FALSE}
+#load library
+# install.packages("wordcloud2")
+library(tidyverse)
+library(wordcloud2)
+library(dplyr)
+theme_set(theme(text = element_text(family="Songti SC",size = 10))) #这里family设置成你系统中的中文字体名。
+
+```
+
+# 你的主要发现
+
+1.  发现1 武汉总价均值在156w ,总价中位数在137w。单价均值在15148元/平，单价中位数在14404元/平
+
+价格分布呈现右偏分布，有部分高价房源拉高了均值
+
+2.  发现2
+
+热门区域集中在：白沙洲、盘龙城、四新等区域
+
+单价最高地区 中南丁字桥 中北路 和 黄埔永清
+
+3.  发现3 去掉无效的数据可以看到近地铁的均价是16628元/平 中位数是15622元/平
+
+而不是近地铁的均价是13558元/平 中位数是12840元/平
+
+可知近地铁的房源比非近地铁的房源更贵
+
+但同一地区的近地铁和非近地铁房源的价格和价格没有明显相关性
+
+# 数据介绍
+
+本报告**链家**数据获取方式如下：
+
+报告人在2023年9月12日获取了[链家武汉二手房网站](https://wh.lianjia.com/ershoufang/)数据。
+
+-   链家二手房网站默认显示100页，每页30套房产，因此本数据包括3000套房产信息；
+
+-   数据包括了页面可见部分的文本信息，具体字段及说明见作业说明。
+
+**说明：**数据仅用于教学；由于不清楚链家数据的展示规则，因此数据可能并不是武汉二手房市场的随机抽样，结论很可能有很大的偏差，甚至可能是错误的。
+
+```{r}
+# 载入数据和预处理
+
+library(tidyverse)
+lj<- read_csv("C:/Users/75764/Desktop/dataScience/2023-09-12_cleaned.csv")
+view(lj)
+
+
+```
+
+# 数据概览
+
+数据表（lj)共包括`r names(lj)`等`r ncol(lj)`个变量,共`r nrow(lj)`行。表的前10行示例如下：
+
+各变量的简短统计：
+
+```{r}
+summary(lj)
+```
+
+```{r}
+ names(lj)
+ ncol(lj)
+ nrow(lj)
+ lj %>% 
+   head(10) 
+```
+
+可以看到：
+
+-   直观结论
+
+有3000行数据，18个变量
+
+# 探索性分析
+
+## 价格数值描述与图形
+
+```{r}
+lj %>% 
+   summarise(
+     total_mean=mean(price_ttl,na.rm = TRUE),
+     total_median=median(price_ttl,na.rm = TRUE),
+     sqm_mean=mean(price_sqm,na.rm = TRUE),
+     sqm_median=median(price_sqm,na.rm = TRUE),
+   )
+ggplot(lj)+geom_histogram(aes(x=price_ttl),binwidth = 50)+geom_vline(xintercept = median(lj$price_ttl,na.rm = TRUE), color = "red", size = 1) 
+```
+
+-   发现1
+
+武汉总价均值在156w ,总价中位数在137w。单价均值在15148元/平，单价中位数在14404元/平
+
+-   发现2
+
+价格分布呈现右偏分布，有部分高价房源拉高了均值
+
+## 地区的数值描述与图形
+
+```{r}
+word_freq <- lj %>%
+  count(property_region) %>%
+  rename(word = property_region, freq = n) %>%
+  arrange(desc(freq))
+word_freq
+wordcloud2(
+  word_freq,
+  size = 1,
+  fontFamily = "微软雅黑",
+  # 如果有中文，设置中文字体
+  color = "random-dark",
+  backgroundColor = "white"
+)
+
+lj %>% 
+  select(property_name,property_region,price_sqm) %>% 
+  arrange(desc(price_sqm))
+```
+
+发现：
+
+-   发现1
+
+热门区域集中在：白沙洲、盘龙城、四新等区域
+
+-   发现2
+
+单价最高地区 中南丁字桥 中北路 和 黄埔永清
+
+## 近地铁情况和价格的关系的数值描述与图形
+
+```{r}
+clean_lj <- lj %>%
+  filter(near_subway %in% c("近地铁", "近地看", NA)) %>%  # 只保留这些数据
+  mutate(near_subway = case_when(
+    near_subway == "近地铁" ~ "近地铁",
+    near_subway == "近地看" ~ "近地铁",  # 将"近地看"归为"近地铁"
+    TRUE ~ "非近地铁"  # NA值归为"非近地铁"
+  ))
+
+clean_lj %>% 
+  group_by(near_subway) %>%
+  summarise(
+    avg_price = mean(price_sqm, na.rm = TRUE),
+    median_price = median(price_sqm, na.rm = TRUE),
+    count = n()
+  ) 
+```
+
+箱线图观察
+
+```{r}
+ggplot(clean_lj, aes(x = near_subway, y = price_sqm)) +
+  geom_boxplot() 
+```
+
+发现：
+
+-   发现1
+
+去掉无效的数据可以看到近地铁的均价是16628元/平 中位数是15622元/平 而不是近地铁的均价是13558元/平 中位数是12840元/平 可知近地铁的房源比非近地铁的房源更贵
+
+## 考虑地区的影响，分析地铁和价格的影响
+
+```{r}
+region_stats <- clean_lj %>%
+  group_by(property_region, near_subway) %>%
+  summarise(
+    avg_price = round(mean(price_sqm, na.rm = TRUE), 0),
+    count = n(),
+    .groups = "drop"
+  )
+region_comparison <- region_stats %>%
+  pivot_wider(
+    id_cols = property_region,                          # 保持不变的列
+    names_from = near_subway,                          # 用来创建新列名的列
+    values_from = c(avg_price, count)    # 需要重组的值列
+  )
+region_comparison <- na.omit(region_comparison)
+region_comparison
+
+ggplot(region_comparison, aes(x = reorder(property_region, avg_price_近地铁))) +
+  geom_col(aes(y = avg_price_近地铁, fill = "近地铁"), alpha = 0.7) +
+  geom_col(aes(y = avg_price_非近地铁, fill = "非近地铁"), alpha = 0.7) +
+  coord_flip()   # 横向显示，便于查看地区名称
+```
+
+不难看出大部分的地区都是近地铁的平均房价会更高
+
+数据处理 计数统计
+
+```{r}
+region_comparison <- region_comparison %>%
+  mutate(price_diff = avg_price_近地铁 - avg_price_非近地铁)
+```
+
+统计各种情况
+
+```{r}
+summary_stats <- list(
+  total_regions = nrow(region_comparison),
+  higher_near_subway = sum(region_comparison$price_diff > 0, na.rm = TRUE),
+  lower_near_subway = sum(region_comparison$price_diff < 0, na.rm = TRUE),
+  equal_price = sum(region_comparison$price_diff == 0, na.rm = TRUE)
+)
+summary_stats
+```
+
+发现：
+
+计数表明总共有65个地区有近地铁和非近地铁房源，其中39个地区近地铁平均房价高于非近地铁房源，26个地区的近地铁平均房价低于非近地铁房源，0.6比0.4的情况，没有明显证据表明近地铁就一定房价更高
+
+------------------------------------------------------------------------
+
+# 发现总结
+
+武汉总价均值在156w,总价中位数在137w。单价均值在15148元/平，单价中位数在14404元/平。价格分布呈现右偏分布，有部分高价房源拉高了均值。热门区域集中在：白沙洲、盘龙城、四新等区域。单价最高地区 中南丁字桥 中北路 和 黄埔永清。去掉无效的数据可以看到近地铁的均价是16628元/平。中位数是15622元/平。而不是近地铁的均价是13558元/平。中位数是12840元/平。可知近地铁的房源比非近地铁的房源更贵。但同一地区的近地铁和非近地铁房源的价格和价格没有明显相关性
